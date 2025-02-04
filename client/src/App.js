@@ -5,6 +5,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import EmployeeDashboard from './components/EmployeeDashboard';
 import ManagerDashboard from './components/ManagerDashboard';
+import TaskReview from './components/TaskReview';
 import { AppBar, Toolbar, Typography, Button, Container } from '@mui/material';
 import './App.css';
 
@@ -65,6 +66,14 @@ function App() {
               element={
                 <PrivateRoute>
                   <Dashboard />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/task-review/:taskId"
+              element={
+                <PrivateRoute>
+                  <TaskReview />
                 </PrivateRoute>
               }
             />

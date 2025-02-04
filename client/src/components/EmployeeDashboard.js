@@ -28,7 +28,8 @@ import {
   Check, 
   Close,
   History,
-  Home
+  Home,
+  Group
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import 'leaflet/dist/leaflet.css';
@@ -43,6 +44,8 @@ const EmployeeDashboard = () => {
   const [wfhDate, setWfhDate] = useState('');
   const [wfhReason, setWfhReason] = useState('');
   const [hasApprovedWfh, setHasApprovedWfh] = useState(false);
+  const [assignedTasks, setAssignedTasks] = useState([]);
+  const [teamTasks, setTeamTasks] = useState([]);
   const { user } = useAuth();
 
   const officeLocation = {
@@ -152,6 +155,36 @@ const EmployeeDashboard = () => {
     checkWfhStatus();
   }, []);
 
+  useEffect(() => {
+    const fetchAssignedTasks = async () => {
+      try {
+        const response = await axios.get('/api/employee/tasks', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        });
+        setAssignedTasks(response.data);
+      } catch (error) {
+        console.error('Error fetching assigned tasks:', error);
+      }
+    };
+
+    fetchAssignedTasks();
+  }, []);
+
+  useEffect(() => {
+    const fetchTeamTasks = async () => {
+      try {
+        const response = await axios.get('/api/employee/team-tasks', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        });
+        setTeamTasks(response.data);
+      } catch (error) {
+        console.error('Error fetching team tasks:', error);
+      }
+    };
+
+    fetchTeamTasks();
+  }, []);
+
   const handleEntry = async () => {
     if (!location && !hasApprovedWfh) {
       alert('Location access is required. Please enable location services.');
@@ -240,6 +273,23 @@ const EmployeeDashboard = () => {
       setWfhRequests(response.data);
     } catch (error) {
       console.error('Error submitting WFH request:', error);
+    }
+  };
+
+  const handleTaskCompletion = async (taskId) => {
+    try {
+      await axios.post(`/api/tasks/complete/${taskId}`, {}, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      
+      // Refresh the tasks list
+      const response = await axios.get('/api/employee/tasks', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      setAssignedTasks(response.data);
+    } catch (error) {
+      console.error('Error completing task:', error);
+      alert('Failed to mark task as completed');
     }
   };
 
@@ -399,6 +449,96 @@ const EmployeeDashboard = () => {
                       </TableCell>
                       <TableCell>{record.totalDuration || '-'}</TableCell>
                       <TableCell>{record.status}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12}>
+          <Paper elevation={3} sx={{ p: 3, mt: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2 }} display="flex" alignItems="center">
+              <WorkOutline sx={{ mr: 1 }} color="primary" />
+              Tasks Assigned by Manager
+            </Typography>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Title</TableCell>
+                    <TableCell>Description</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Action</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {assignedTasks.map((task) => (
+                    <TableRow key={task._id}>
+                      <TableCell>{task.taskId.title}</TableCell>
+                      <TableCell>{task.taskId.description}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={task.status}
+                          color={task.status === 'completed' ? 'success' : 'warning'}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {task.status !== 'completed' && (
+                          <Button
+                            variant="contained"
+                            color="primary"
+                            size="small"
+                            onClick={() => handleTaskCompletion(task.taskId._id)}
+                            startIcon={<Check />}
+                          >
+                            Mark Complete
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12}>
+          <Paper elevation={3} sx={{ p: 3, mt: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2 }} display="flex" alignItems="center">
+              <Group sx={{ mr: 1 }} color="primary" />
+              Team Tasks
+            </Typography>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Team Member</TableCell>
+                    <TableCell>Task</TableCell>
+                    <TableCell>Description</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Completed On</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {teamTasks.map((task) => (
+                    <TableRow key={task._id}>
+                      <TableCell>{task.employeeId.name}</TableCell>
+                      <TableCell>{task.taskId.title}</TableCell>
+                      <TableCell>{task.taskId.description}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={task.status}
+                          color={task.status === 'completed' ? 'success' : 'warning'}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {task.completedDate 
+                          ? new Date(task.completedDate).toLocaleString()
+                          : '-'}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

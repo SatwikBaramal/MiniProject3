@@ -7,6 +7,8 @@ require('dotenv').config();
 const User = require('./models/User');
 const Attendance = require('./models/Attendance');
 const WFHRequest = require('./models/WFHRequest');
+const Task = require('./models/Task');
+const TaskAssignment = require('./models/TaskAssignment');
 const { auth, isManager } = require('./middleware/auth');
 
 const app = express();
@@ -471,6 +473,200 @@ app.get('/api/manager/attendance/:employeeId', auth, isManager, async (req, res)
       .sort({ date: -1 });
     res.json(attendance);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Task Assignment Routes
+app.post('/api/tasks/assign', auth, isManager, async (req, res) => {
+  try {
+    const { taskId, employeeId } = req.body;
+    console.log('Assigning task:', { taskId, employeeId });
+
+    // Check if task and employee exist
+    const task = await Task.findById(taskId);
+    const employee = await User.findById(employeeId);
+
+    if (!task) {
+      console.error('Task not found:', taskId);
+      return res.status(400).json({ error: 'Invalid task' });
+    }
+
+    if (!employee || employee.role !== 'employee') {
+      console.error('Invalid employee:', employeeId);
+      return res.status(400).json({ error: 'Invalid employee' });
+    }
+
+    // Create task assignment
+    const taskAssignment = new TaskAssignment({
+      taskId,
+      employeeId
+    });
+
+    await taskAssignment.save();
+    res.status(201).json({ message: 'Task assigned successfully', taskAssignment });
+  } catch (error) {
+    console.error('Error assigning task:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint to get tasks assigned to an employee
+app.get('/api/employee/tasks', auth, async (req, res) => {
+  try {
+    const tasks = await TaskAssignment.find({ employeeId: req.user._id })
+      .populate('taskId', 'title description')
+      .lean();
+
+    res.json(tasks);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Task Routes
+app.post('/api/tasks', auth, isManager, async (req, res) => {
+  try {
+    const { title, description } = req.body;
+    
+    // Create new task
+    const task = new Task({
+      title,
+      description
+    });
+
+    await task.save();
+    res.status(201).json(task);
+  } catch (error) {
+    console.error('Error creating task:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all tasks
+app.get('/api/tasks', auth, async (req, res) => {
+  try {
+    const tasks = await Task.find();
+    res.json(tasks);
+  } catch (error) {
+    console.error('Error fetching tasks:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Mark task as completed (by employee)
+app.post('/api/tasks/complete/:taskId', auth, async (req, res) => {
+  try {
+    const taskAssignment = await TaskAssignment.findOne({
+      taskId: req.params.taskId,
+      employeeId: req.user._id
+    });
+
+    if (!taskAssignment) {
+      return res.status(404).json({ error: 'Task assignment not found' });
+    }
+
+    taskAssignment.status = 'pending_review';
+    taskAssignment.completedDate = new Date();
+    await taskAssignment.save();
+
+    res.json({ message: 'Task marked as completed and pending review', taskAssignment });
+  } catch (error) {
+    console.error('Error completing task:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get task details for review (manager only)
+app.get('/api/tasks/review/:taskId', auth, isManager, async (req, res) => {
+  try {
+    const task = await TaskAssignment.findOne({
+      taskId: req.params.taskId
+    })
+    .populate('taskId', 'title description')
+    .populate('employeeId', 'name');
+
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    res.json(task);
+  } catch (error) {
+    console.error('Error fetching task for review:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Approve completed task (manager only)
+app.post('/api/tasks/approve/:taskId', auth, isManager, async (req, res) => {
+  try {
+    const task = await TaskAssignment.findOne({
+      taskId: req.params.taskId
+    });
+
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    if (task.status !== 'pending_review') {
+      return res.status(400).json({ error: 'Task is not pending review' });
+    }
+
+    task.status = 'approved';
+    task.approvedDate = new Date();
+    await task.save();
+
+    res.json({ message: 'Task approved successfully', task });
+  } catch (error) {
+    console.error('Error approving task:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all assigned tasks (for manager)
+app.get('/api/tasks/assigned', auth, isManager, async (req, res) => {
+  try {
+    const tasks = await TaskAssignment.find()
+      .populate('taskId', 'title description')
+      .populate('employeeId', 'name')
+      .lean();
+    
+    res.json(tasks);
+  } catch (error) {
+    console.error('Error fetching assigned tasks:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get tasks for all employees under the same manager
+app.get('/api/employee/team-tasks', auth, async (req, res) => {
+  try {
+    // Get the current employee's manager
+    const currentEmployee = await User.findById(req.user._id);
+    
+    if (!currentEmployee.managerId) {
+      return res.status(400).json({ error: 'No manager assigned' });
+    }
+
+    // Find all employees under the same manager
+    const teamEmployees = await User.find({ 
+      managerId: currentEmployee.managerId,
+      _id: { $ne: req.user._id } // Exclude current employee
+    });
+
+    // Get all task assignments for the team
+    const teamTasks = await TaskAssignment.find({
+      employeeId: { 
+        $in: teamEmployees.map(emp => emp._id)
+      }
+    })
+    .populate('taskId', 'title description')
+    .populate('employeeId', 'name')
+    .lean();
+
+    res.json(teamTasks);
+  } catch (error) {
+    console.error('Error fetching team tasks:', error);
     res.status(500).json({ error: error.message });
   }
 });
